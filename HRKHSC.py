@@ -6,11 +6,12 @@ from sklearn.utils.multiclass import unique_labels
 
 class HRKHSC(BaseEstimator, ClassifierMixin):
 
-    def __init__(self, r, lambda_ = 1, lambda_Q_ = 1, MAX_ITER = 10):
+    def __init__(self, r, lambda_ = 1, lambda_Q_ = 1, intercept = True, MAX_ITER = 10):
         self.lambda_ = lambda_
         self.lambda_Q_ = lambda_Q_
         self.MAX_ITER = MAX_ITER
         self.r = r
+        self.intercept = intercept
 
     def Z(self, Omega, X):
         r = Omega.shape[0]
@@ -81,14 +82,26 @@ class HRKHSC(BaseEstimator, ClassifierMixin):
             # solution is in lower dimensional space than rank C
 
             M = 1/self.lambda_ * k + np.eye(n)
-            lower = np.hstack((ones,M))
 
-            C = np.vstack((upper, lower))
-            d = np.vstack((0,y))
+            if self.intercept == True:
+                lower = np.hstack((ones,M))
 
-            x,_ = cg(C,d)
-            b = x[0]
-            mu = x[1:].reshape(-1,1)
+                C = np.vstack((upper, lower))
+                d = np.vstack((0,y))
+
+                x,_ = cg(C,d)
+                
+                b = x[0]
+                mu = x[1:].reshape(-1,1)
+
+            else:
+                C = M
+                d = y
+                x,_ = cg(C,d)
+
+                b = 0
+                mu = x.reshape(-1,1)
+
 
             # the Beta vector is the solution to the minimization problem for
             # the LSSVM lagrangian dual with a hyper-RKHS regularizer added

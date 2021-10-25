@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, cross_validate
 
-n = 400
+n = 100
 dim = 2
 r = 10
 
