@@ -1,9 +1,9 @@
-from HRKHSC import HRKHSC
+from HRKHSC import HRKHSC_HD as HRKHSC
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, cross_validate
 
-n = 100
+n = 500
 dim = 2
 r = 10
 
@@ -45,6 +45,11 @@ Xmin = np.min(X_train, axis = 0)
 Xmax = np.max(X_train, axis = 0)
 X = (X - Xmin)/(Xmax - Xmin)
 
+I = np.random.choice(n, n, replace = False)
+X = X[I,:]
+y = y[I]
+
+y_train = y[:n_train]
 X_train = X[:n_train,:]
 
 X_test = X[n_train:, :]
