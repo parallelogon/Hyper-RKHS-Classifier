@@ -230,6 +230,35 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
             
             
             '''
+            t_i = 0
+            #lr = self.lr / np.sqrt(1. + self.MAX_ITER * t)
+             
+            for iteration_alpha in range(self.MAX_ITER):
+                z = self.Z(Omega, X).T
+                y_hat = z @ (alpha * np.sqrt(gamma)) + b
+                
+                losses = np.maximum(0, 1 - y * y_hat)
+                losses = losses.reshape(len(losses))
+                loss = losses.sum()
+                train_loss.append(loss)
+                
+                grad = -100 * y * z * np.sqrt(gamma).T
+                grad[losses <= 0] = 0
+                grad = grad.mean(axis = 0).reshape(-1,1)
+                grad += self.lambda_ * alpha
+                
+                gradA = beta * grad**2 + (1 - beta) * gradA
+                alpha -= lr * (1/np.sqrt(1 + gradA)) * grad
+                
+                grad_b = - 100 * y
+                grad_b[losses <= 0] = 0
+                grad_b = np.mean(grad_b)
+                
+                b -= lr * grad_b
+                
+                #lr = self.lr/np.sqrt(1. + self.lr *(t* + t_i))
+                #t_i += 1
+                
             #lr = self.lr / np.sqrt(1. + self.lr * t*self.MAX_ITER)
             t_j = 0 
             #lr = self.lr
@@ -255,35 +284,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
                 
                 gamma = np.maximum(1e-30, gamma)
                 #lr = self.lr/np.sqrt(1. + self.lr * (t + t_j))
-                t_j += 1
-                
-            t_i = 0
-            #lr = self.lr / np.sqrt(1. + self.MAX_ITER * t)
-            for iteration_alpha in range(self.MAX_ITER):
-                z = self.Z(Omega, X).T
-                y_hat = z @ (alpha * np.sqrt(gamma)) + b
-                
-                losses = np.maximum(0, 1 - y * y_hat)
-                losses = losses.reshape(len(losses))
-                loss = losses.sum()
-                train_loss.append(loss)
-                
-                grad = -100 * y * z * np.sqrt(gamma).T
-                grad[losses <= 0] = 0
-                grad = grad.mean(axis = 0).reshape(-1,1)
-                grad += self.lambda_ * alpha
-                
-                #gradA = beta * grad**2 + (1 - beta) * gradA
-                alpha -= lr * (1/np.sqrt(1 + gradA)) * grad
-                
-                grad_b = - 100 * y
-                grad_b[losses <= 0] = 0
-                grad_b = np.mean(grad_b)
-                
-                b -= lr * grad_b
-                
-                #lr = self.lr/np.sqrt(1. + self.lr *(t* + t_i))
-                t_i += 1
+                #t_j += 1
                 
 
                 
