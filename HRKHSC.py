@@ -1,9 +1,111 @@
 import numpy as np
+from sklearn import svm
 from scipy.sparse.linalg import cg
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.utils.multiclass import unique_labels
+
 import cvxpy as cp
+
+class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
+    def __init__(self, r, lambda_Q_ = 1, intercept = True, C_ = 1, gamma_ = "scale"):
+        self.lambda_Q_ = lambda_Q_
+        self.r = r
+        self.intercept = intercept
+        self.Omega = None
+        self.model = None
+        self.C_ = C_
+        self.gamma_ = gamma_
+
+
+    def Z(self, Omega, X):
+        return np.sqrt(2/self.r) * np.cos(Omega @ X.T)
+
+    def pairs(self, X1, X2):
+        n1, d = X1.shape
+        n2 = X2.shape[0]
+        return np.reshape(X1[:,None] - X2[None,:], (n1*n2, d))
+
+    def D(self, Omega, X, X_prime = None):
+        if X_prime is None:
+            return self.Z(Omega, self.pairs(X,X))
+        else:
+            return self.Z(Omega, self.pairs(X, X_prime))
+
+    def kernel_func(self, Beta, Omega):
+        gamma = self.z @ Beta
+
+        def k(X, Y):
+            n1 = X.shape[0]
+            n2 = Y.shape[0]
+            return np.reshape(self.D(Omega, X, Y).T @ gamma, (n1,n2))
+
+        return k
+
+
+    def fit(self, X, y, verbose = False):
+        X,y = check_X_y(X,y)
+        self.classes_ = unique_labels(y)
+        y = y.reshape(-1,1)
+
+        n, dim = X.shape
+        self.n = n
+
+        I = np.random.permutation(self.n)
+        X = X[I,:]
+        y = y[I,:]
+
+        y = y.reshape(-1,1)
+
+        Xmax = np.max(X, axis = 0)
+        Xmin = np.min(X, axis = 0)
+        X = (X - Xmin)/(Xmax - Xmin)
+        ones = np.ones((n,1))
+        X = np.hstack((ones, X))
+
+        self.x = X
+        self.y = y
+
+        self.Xmax = Xmax
+        self.Xmin = Xmin
+
+
+        # roll random features (Omega) from mvnorm with intercept from uniform[0,2pi]
+        if self.Omega is None:
+            mu = np.zeros(dim)
+            sig = np.eye(dim)
+            Omega = np.random.multivariate_normal(mu, sig, size = self.r)
+            uni = np.random.uniform(size = (self.r,1))*2*np.pi
+            Omega = np.hstack((uni,Omega))
+            self.Omega = Omega
+        else:
+            Omega = self.Omega
+
+        # find the kernel matrix, k
+        z = self.D(Omega, X)
+        self.z = z
+        Y = np.reshape(y @ y.T, (-1,1))
+
+        self.beta = 1/self.lambda_Q_ * ( np.eye(self.n**2) - z.T @ np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z@z.T)@z)@ Y
+
+        self.model = svm.SVC(kernel = self.kernel_func(Beta = self.beta, Omega = self.Omega), C = self.C_, gamma = self.gamma_)
+
+        self.model.fit(X, y.ravel())
+
+    def predict(self, X):
+        n_test,dim = X.shape
+        
+        assert dim + 1 == self.x.shape[1], "Dimension of input incorrect"
+
+        X = (X - self.Xmin)/(self.Xmax - self.Xmin)
+        X = np.hstack((np.ones((n_test,1)),X))
+
+        y_hat = self.model.predict(X)
+
+        return np.reshape(y_hat, -1)
+
+
+
 class HRKHSC_HD(BaseEstimator, ClassifierMixin):
 
     def __init__(self, r, lambda_ = 1, lambda_Q_ = 1, intercept = True, MAX_ITER = 10):
@@ -12,6 +114,8 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
         self.MAX_ITER = MAX_ITER
         self.r = r
         self.intercept = intercept
+        self.Omega = None
+
 
     def Z(self, Omega, X):
         r = Omega.shape[0]
@@ -58,12 +162,16 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
         self.Xmin = Xmin
 
         # roll random features (Omega) from mvnorm with intercept from uniform[0,2pi]
-        mu = np.zeros(dim)
-        sig = np.eye(dim)
-        Omega = np.random.multivariate_normal(mu, sig, size = self.r)
-        uni = np.random.uniform(size = (self.r,1))*2*np.pi
-        Omega = np.hstack((uni,Omega))
-        self.Omega = Omega
+
+        if self.Omega is None:
+            mu = np.zeros(dim)
+            sig = np.eye(dim)
+            Omega = np.random.multivariate_normal(mu, sig, size = self.r)
+            uni = np.random.uniform(size = (self.r,1))*2*np.pi
+            Omega = np.hstack((uni,Omega))
+            self.Omega = Omega
+        else:
+            Omega = self.Omega
 
         # Beta vector multiplies with the hyperkernel K and has dim (n**2 x 1)
         Beta = np.random.rand(n**2, 1)
@@ -158,6 +266,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         self.r = r
         self.lr = lr
         self.N_LOOPS = 5
+        self.Omega = None
 
     def Z(self, Omega, X):
         r = Omega.shape[0]
@@ -198,10 +307,13 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         #mu = np.zeros(dim)
         #sig = np.eye(dim)
         #Omega = np.random.multivariate_normal(mu, sig, size = self.r)
-        Omega = np.random.randn(self.r, dim)
-        uni = np.random.uniform(size = (self.r,1))*2*np.pi
-        Omega = np.hstack((uni,Omega))
-        self.Omega = Omega
+        if self.Omega is None:
+            Omega = np.random.randn(self.r, dim)
+            uni = np.random.uniform(size = (self.r,1))*2*np.pi
+            Omega = np.hstack((uni,Omega))
+            self.Omega = Omega
+        else:
+            Omega = self.Omega
 
         # low dim gamma vector is sum of kernel params, alpha is weights
         #gamma = np.random.rand(self.r)

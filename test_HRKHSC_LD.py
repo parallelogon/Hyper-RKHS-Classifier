@@ -113,13 +113,13 @@ plt.show()
 
 ###############
 
-params = {'lambda_':[1e-3,1e-2,1e-1,1.], 'r':[1, 10, 100,200], 'lr':[.0001,.001,.01]}
-clf_grid = GridSearchCV(clf, params, verbose = 3, cv = 3)
+params = {'lambda_':[1e-3,1e-2,1e-1,1.], 'r':[1, 10, 100,200]}#, 'lr':[.0001,.001,.01]}
+clf_grid = GridSearchCV(clf, params, verbose = 3, cv = 5)
 clf_grid.fit(X_train,y_train)
 clf = clf_grid.best_estimator_
 
 clf.MAX_ITER = 100
-clf.N_LOOPS = 25
+clf.N_LOOPS = 30
 
 cvresults = cross_validate(clf, X, y, cv=5)
 scores = 100*cvresults['test_score']

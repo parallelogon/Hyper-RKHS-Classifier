@@ -1,4 +1,4 @@
-from HRKHSC import HRKHSC_HD as HRKHSC
+from HRKHSC import HRKHSC_2ST as HRKHSC
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import GridSearchCV, cross_validate
@@ -56,7 +56,7 @@ X_test = X[n_train:, :]
 y_test = y[n_train:]
 
 clf = HRKHSC(1)
-params = {'lambda_':[1e-3,1e-1,1,100], 'r':[1,10,100]}
+params = {'r':[1,10,100], "C_":[1,10,100], "gamma_":["auto", "scale"]}
 clf_grid = GridSearchCV(clf, params, verbose = 3, cv = 3)
 clf_grid.fit(X_train,y_train)
 clf = clf_grid.best_estimator_
