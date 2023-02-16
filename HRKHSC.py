@@ -85,8 +85,16 @@ class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
         z = self.D(Omega, X)
         self.z = z
         Y = np.reshape(y @ y.T, (-1,1))
+        T = Y.copy()
 
-        self.beta = 1/self.lambda_Q_ * ( np.eye(self.n**2) - z.T @ np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z@z.T)@z)@ Y
+        Y = z @ Y
+
+        Y = np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z @ z.T) @ Y
+        Y = z.T @ Y
+        Y = T - Y
+        self.beta = 1/self.lambda_Q_ * np.maximum(0,Y)
+        
+        #self.beta = 1/self.lambda_Q_ * ( np.eye(self.n**2) - z.T @ np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z@z.T)@z)@ Y
 
         self.model = svm.SVC(kernel = self.kernel_func(Beta = self.beta, Omega = self.Omega), C = self.C_, gamma = self.gamma_)
 
@@ -255,17 +263,18 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
 class HRKHSC_LD(BaseEstimator, ClassifierMixin):
 
     def __init__(self, r,
-                 lr = 0.001,
+                 lr = 0.01,
                  lambda_ = 1.,
                  lambda_Q_ = 1.,
-                 MAX_ITER = 10):
+                 MAX_ITER = 10,
+                 N_LOOPS = 5):
         
         self.lambda_ = lambda_
         self.lambda_Q_ = lambda_Q_
         self.MAX_ITER = MAX_ITER
         self.r = r
         self.lr = lr
-        self.N_LOOPS = 5
+        self.N_LOOPS = N_LOOPS
         self.Omega = None
 
     def Z(self, Omega, X):
