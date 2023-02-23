@@ -29,7 +29,7 @@ ionosphere = pd.read_csv("ionosphere.data", header = None)
 cat_dict = {name:num for name,num in zip(ionosphere[34].unique(), [e for e in range(len(ionosphere[34].unique()))])}
 
 ionosphere["y"] = ionosphere[34].apply(lambda x: cat_dict[x])
-
+ionosphere[0] = 2*ionosphere[0]-1
 
 ionosphere.drop(1, axis = 1, inplace = True)
 n_col = len(ionosphere.columns)

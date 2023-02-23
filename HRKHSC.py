@@ -5,17 +5,18 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from sklearn.utils.multiclass import unique_labels
 
-import cvxpy as cp
 
 class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
-    def __init__(self, r, lambda_Q_ = 1, intercept = True, C_ = 1, gamma_ = "scale"):
+    def __init__(self, r, lambda_Q_ = 1, intercept = True, C_ = 1, scale = "scale", subsample = None):
         self.lambda_Q_ = lambda_Q_
         self.r = r
         self.intercept = intercept
         self.Omega = None
         self.model = None
         self.C_ = C_
-        self.gamma_ = gamma_
+        self.scale = scale
+
+        self.subsample = subsample
 
 
     def Z(self, Omega, X):
@@ -32,8 +33,8 @@ class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
         else:
             return self.Z(Omega, self.pairs(X, X_prime))
 
-    def kernel_func(self, Beta, Omega):
-        gamma = self.z @ Beta
+    def kernel_func(self, gamma, Omega):
+        
 
         def k(X, Y):
             n1 = X.shape[0]
@@ -49,26 +50,38 @@ class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
         y = y.reshape(-1,1)
 
         n, dim = X.shape
-        self.n = n
 
-        I = np.random.permutation(self.n)
+
+        # randomly permute data
+        I = np.random.permutation(n)
         X = X[I,:]
         y = y[I,:]
 
-        y = y.reshape(-1,1)
 
-        Xmax = np.max(X, axis = 0)
-        Xmin = np.min(X, axis = 0)
-        X = (X - Xmin)/(Xmax - Xmin)
+        # subsample for kernel learning
+
+        if self.subsample is not None:
+            assert self.subsample < 1.0
+            I = np.random.choice(n,int(self.subsample*n), replace = False)
+
+        Xt = X[I,:]
+        yt = y[I,:]
+
+
+        n = len(I)
+        self.n = n
+
+        yt = yt.reshape(-1,1)
+
         ones = np.ones((n,1))
-        X = np.hstack((ones, X))
 
-        self.x = X
-        self.y = y
 
-        self.Xmax = Xmax
-        self.Xmin = Xmin
+        Xt = np.hstack((ones, Xt))
 
+        ones1 = np.ones((len(X),1))
+        X = np.hstack((ones1,X))
+
+        self.dim = X.shape[-1]
 
         # roll random features (Omega) from mvnorm with intercept from uniform[0,2pi]
         if self.Omega is None:
@@ -82,30 +95,28 @@ class HRKHSC_2ST(BaseEstimator, ClassifierMixin):
             Omega = self.Omega
 
         # find the kernel matrix, k
-        z = self.D(Omega, X)
+        z = self.D(Omega, Xt)
         self.z = z
-        Y = np.reshape(y @ y.T, (-1,1))
+
+        # Woodbury Identity to solve for beta
+        Y = np.reshape(yt @ yt.T, (-1,1))
+        #Y = (Y+1)/2.
         T = Y.copy()
-
         Y = z @ Y
-
         Y = np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z @ z.T) @ Y
         Y = z.T @ Y
         Y = T - Y
-        self.beta = 1/self.lambda_Q_ * np.maximum(0,Y)
-        
-        #self.beta = 1/self.lambda_Q_ * ( np.eye(self.n**2) - z.T @ np.linalg.inv(self.lambda_Q_*np.eye(self.r) + z@z.T)@z)@ Y
-
-        self.model = svm.SVC(kernel = self.kernel_func(Beta = self.beta, Omega = self.Omega), C = self.C_, gamma = self.gamma_)
+        self.beta = 1/self.lambda_Q_ * np.maximum(0,Y) # project onto positive orthant
+        self.gamma = self.z @ self.beta
+        self.model = svm.SVC(kernel = self.kernel_func(gamma = self.gamma, Omega = self.Omega), C = self.C_, gamma = self.scale)
 
         self.model.fit(X, y.ravel())
 
     def predict(self, X):
         n_test,dim = X.shape
         
-        assert dim + 1 == self.x.shape[1], "Dimension of input incorrect"
+        assert dim + 1 == self.dim, "Dimension of input incorrect"
 
-        X = (X - self.Xmin)/(self.Xmax - self.Xmin)
         X = np.hstack((np.ones((n_test,1)),X))
 
         y_hat = self.model.predict(X)
@@ -146,7 +157,7 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
         self.classes_ = unique_labels(y)
         y = y.reshape(-1,1)
 
-        # shuffle X and y, rescale X, and include intercept
+        # shuffle X and y, and include intercept
 
         n, dim = X.shape
         self.n = n
@@ -157,17 +168,12 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
 
         y = y.reshape(-1,1)
 
-        Xmax = np.max(X, axis = 0)
-        Xmin = np.min(X, axis = 0)
-        X = (X - Xmin)/(Xmax - Xmin)
         ones = np.ones((n,1))
         X = np.hstack((ones,X))
 
         self.X = X
         self.y = y
 
-        self.Xmax = Xmax
-        self.Xmin = Xmin
 
         # roll random features (Omega) from mvnorm with intercept from uniform[0,2pi]
 
@@ -248,7 +254,6 @@ class HRKHSC_HD(BaseEstimator, ClassifierMixin):
         
         assert dim + 1 == self.X.shape[1], "Dimension of input incorrect"
 
-        X = (X - self.Xmin)/(self.Xmax - self.Xmin)
         X = np.hstack((np.ones((n_test,1)),X))
 
         z_pred = self.D_pred(self.Omega, X, self.X)
@@ -267,7 +272,8 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
                  lambda_ = 1.,
                  lambda_Q_ = 1.,
                  MAX_ITER = 10,
-                 N_LOOPS = 5):
+                 N_LOOPS = 5,
+                 scale = 1):
         
         self.lambda_ = lambda_
         self.lambda_Q_ = lambda_Q_
@@ -276,6 +282,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         self.lr = lr
         self.N_LOOPS = N_LOOPS
         self.Omega = None
+        self.scale = scale
 
     def Z(self, Omega, X):
         r = Omega.shape[0]
@@ -288,7 +295,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         self.classes_ = unique_labels(y)
         y = y.reshape(-1,1)
 
-        # shuffle X and y, rescale X, and include intercept
+        # shuffle X and y, and include intercept
 
         n, dim = X.shape
         self.n = n
@@ -299,17 +306,12 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
 
         y = y.reshape(-1,1)
 
-        Xmax = np.max(X, axis = 0)
-        Xmin = np.min(X, axis = 0)
-        X = (X - Xmin)/(Xmax - Xmin)
+
         ones = np.ones((n,1))
         X = np.hstack((ones,X))
 
         self.X = X
         self.y = y
-
-        self.Xmax = Xmax
-        self.Xmin = Xmin
 
         
         # roll random features (Omega) from mvnorm with intercept from uniform[0,2pi]
@@ -318,6 +320,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         #Omega = np.random.multivariate_normal(mu, sig, size = self.r)
         if self.Omega is None:
             Omega = np.random.randn(self.r, dim)
+            Omega *= np.sqrt(self.scale)
             uni = np.random.uniform(size = (self.r,1))*2*np.pi
             Omega = np.hstack((uni,Omega))
             self.Omega = Omega
@@ -353,7 +356,7 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
             '''
             t_i = 0
             #lr = self.lr / np.sqrt(1. + self.MAX_ITER * t)
-             
+            
             for iteration_alpha in range(self.MAX_ITER):
                 z = self.Z(Omega, X).T
                 y_hat = z @ (alpha * np.sqrt(gamma)) + b
@@ -377,10 +380,6 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
                 
                 b -= lr * grad_b
                 
-                #lr = self.lr/np.sqrt(1. + self.lr *(t* + t_i))
-                #t_i += 1
-                
-            #lr = self.lr / np.sqrt(1. + self.lr * t*self.MAX_ITER)
             t_j = 0 
             #lr = self.lr
             for iteration_gamma in range(self.MAX_ITER):
@@ -403,12 +402,15 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
                 gradG = (1 - beta) * gradG + beta * grad**2
                 gamma -= lr * (1/np.sqrt(1 + gradG)) * grad
                 
-                gamma = np.maximum(1e-30, gamma)
+                gamma = np.maximum(1e-10, gamma)
                 #lr = self.lr/np.sqrt(1. + self.lr * (t + t_j))
                 #t_j += 1
                 
-
+                #lr = self.lr/np.sqrt(1. + self.lr *(t* + t_i))
+                #t_i += 1
                 
+            #lr = self.lr / np.sqrt(1. + self.lr * t*self.MAX_ITER)
+
                 
             t += 1
         self.Alpha = alpha
@@ -423,13 +425,12 @@ class HRKHSC_LD(BaseEstimator, ClassifierMixin):
         n_test,dim = X.shape
         assert dim + 1 == self.X.shape[1], "Dimension of input incorrect"
 
-        X = (X - self.Xmin)/(self.Xmax - self.Xmin)
         X = np.hstack((np.ones((n_test,1)),X))
-
+        X = X
         z_pred = self.Z(self.Omega, X).T
-        #y_hat = ((self.Alpha * np.sqrt(self.Gamma)).T @ z_pred) + self.b > 0
-        #y_hat = self.Alpha @ z_pred >= 0
+
         y_hat = np.sign(z_pred @ (self.Alpha * np.sqrt(self.Gamma)) + self.b)
-        #y_hat = 2*y_hat - 1
+
 
         return y_hat.reshape(len(y_hat))
+
